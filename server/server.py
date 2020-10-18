@@ -1,75 +1,113 @@
 # -*- coding:utf8 -*-
+import os
 import time
 import json
-import tkinter
-from tkinter import ttk, scrolledtext
+import requests
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
 
-class GUI:
-    def __init__(self):
-        self.main_window = tkinter.Tk()
-        self.main_window.title('server')
-        self.main_window.geometry('500x500')
+username = "k5bs2MYq7Ivp*****************" #Hue ユーザー名
 
-        self.button1 = ttk.Button(text="ON")
-        self.button1.pack()
-        self.button1.bind("<Button-1>",self.clickButton1)
+ip = "192.168.2.87"
+HUE_API = 'http://'+ip+'/api/'+username+'/lights'
 
-        self.button2 = ttk.Button(text="OFF")
-        self.button2.pack()
-        self.button2.bind("<Button-1>",self.clickButton2)
+b_alert_on = False
+x = 200
+y = 200
+volume = 255
 
-        self.button3 = ttk.Button(text="Exit")
-        self.button3.pack()
-        self.button3.bind("<Button-1>",self.clickButton3)
+state = [1,2,3]
 
-        self.setupAWSIoT()
-    
-    def setupAWSIoT(self):
-        self.myMQTTClient = AWSIoTMQTTClient('myClientID2') # 適当な値でOK
-        self.myMQTTClient.configureEndpoint('a1gbwzf7otibfp-ats.iot.us-west-2.amazonaws.com', 8883) # 管理画面で確認
-        self.myMQTTClient.configureCredentials('data/rootCA.pem', 'data/fd35544055-private.pem.key', 'data/fd35544055-certificate.pem.crt')
-        self.myMQTTClient.configureOfflinePublishQueueing(-1) # Infinite offline Publish queueing
-        self.myMQTTClient.configureDrainingFrequency(2) # Draining: 2 Hz
-        self.myMQTTClient.configureConnectDisconnectTimeout(10) # 10 sec
-        self.myMQTTClient.configureMQTTOperationTimeout(5) # 5 sec
-        self.myMQTTClient.connect()
-        print("MQTT connect done")
+NO_POST = False
 
-    def customCallback(self, client, userdata, message):
-        print('Received a new message: ')
-        print(message.payload)
-        print('from topic: ')
-        print(message.topic)
-        print('--------------\n\n')
+def customCallback(client, userdata, message):
+    print('Received a new message: ')
+    print(message.payload)
+    msg = eval(message.payload)
+    print('from topic: ')
+    print(message.topic)
+    print('--------------\n\n')
+    if "message" in msg.keys():
+        if "volume" in msg["message"]:
+            global volume
+            volume = max(0,min(255,int(255 * int(msg["message"].split(":")[1]) / 400.)))
+            for i in state:
+                if not NO_POST:
+                    requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":volume, "xy":[x/400., y/400.]})
+            
+        if "drag" in msg["message"]:
+            global x
+            global y
+            x = int(msg["message"].split(":")[1])
+            y = int(msg["message"].split(":")[2])
+            print(x/400.,y/400.)
+            for i in state:
+                if not NO_POST:
+                    requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":volume, "xy":[x/400., y/400.]})
 
-    def clickButton1(self,event):
-        self.sendMessage("clickButton1")
-        return "break"
+        if "clickButton1" == msg["message"]:
+            for i in state:
+                if not NO_POST:
+                    requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":255, "xy":[0.35, 0.35]})
 
-    def clickButton2(self,event):
-        self.sendMessage("clickButton2")
-        return "break"
+        if "clickAlertOn" == msg["message"]:
+            global b_alert_on
+            b_alert_on = True
 
-    def clickButton3(self,event):
-        exit()
-        return "break"
+        if "clickAlertOff" == msg["message"]:
+            global b_alert_on
+            b_alert_on = False
 
-    def update(self):
-        print("update")
-        self.myMQTTClient.subscribe("myTopic", 1, self.customCallback)
-        self.main_window.after(50, self.update)
+        if "clickButton2" == msg["message"]:
+            for i in state:
+                if not NO_POST:
+                    requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":False})
 
-    def start(self):
-        #self.main_window.after(50, self.update)
-        #self.main_window.mainloop()
-        while 1:
-            self.myMQTTClient.subscribe("myTopic", 1, self.customCallback)
-        return
+print(os.getcwd())
+print(os.path.dirname(__file__))
 
-def main():
-    W = GUI()
-    W.start()
+# For certificate based connection
+myMQTTClient = AWSIoTMQTTClient('myClientID') # 適当な値でOK
+myMQTTClient.configureEndpoint('a1gbwzf7o***********iot.us-west-2.amazonaws.com', 8883) # 管理画面で確認
+myMQTTClient.configureCredentials(os.path.join(os.path.dirname(__file__),'data/rootCA.pem'),
+ os.path.join(os.path.dirname(__file__),'data/**********-private.pem.key'),
+ os.path.join(os.path.dirname(__file__),'data//**********--certificate.pem.crt'))
+myMQTTClient.configureOfflinePublishQueueing(-1) # Infinite offline Publish queueing
+myMQTTClient.configureDrainingFrequency(2) # Draining: 2 Hz
+myMQTTClient.configureConnectDisconnectTimeout(10) # 10 sec
+myMQTTClient.configureMQTTOperationTimeout(5) # 5 sec
+myMQTTClient.connect()
+print("server start")
+while True:
+    if 0:
+        try:
+            myMQTTClient.subscribe("myTopic", 1, customCallback)
+        except KeyboardInterrupt:
+            print("ctrl+c")
+            break
+        except:
+            print("subscribe error")
+    else:
+        myMQTTClient.subscribe("myTopic", 1, customCallback)
 
-if __name__ == "__main__":
-    main()
+    print("loop")
+    global b_alert_on
+    if b_alert_on:
+        print("alert")
+        for i in state:
+            if not NO_POST:
+                requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":volume, "transitiontime":5, "xy":[0.575, 0.1875]})
+        #requests.put(HUE_API + '/1/state', json = {"on":True, "bri":0, "transitiontime":0, "xy":[0.5, 0.5]})
+        #print("off")
+        time.sleep(0.1)
+        for i in state:
+            if not NO_POST:
+                requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":volume, "transitiontime":5, "xy":[0.4575, 0.445]})
+        #requests.put(HUE_API + '/1/state', json = {"on":True, "bri":0, "transitiontime":0, "xy":[0.5, 0.5]})
+        #print("off")
+        time.sleep(0.1)
+        for i in state:
+            if not NO_POST:
+                requests.put(HUE_API + '/'+str(i)+'/state', json = {"on":True, "bri":volume, "transitiontime":5, "xy":[0.215, 0.27]})
+        #requests.put(HUE_API + '/1/state', json = {"on":True, "bri":0, "transitiontime":0, "xy":[0.5, 0.5]})
+        #print("off")
+        time.sleep(0.1)
